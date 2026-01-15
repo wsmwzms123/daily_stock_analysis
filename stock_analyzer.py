@@ -134,10 +134,10 @@ class StockTrendAnalyzer:
     """
     
     # 交易参数配置
-    BIAS_THRESHOLD = 5.0        # 乖离率阈值（%），超过此值不买入
+    BIAS_THRESHOLD = 3.5        # 乖离率阈值（%），超过此值不买入
     VOLUME_SHRINK_RATIO = 0.7   # 缩量判断阈值（当日量/5日均量）
-    VOLUME_HEAVY_RATIO = 1.5    # 放量判断阈值
-    MA_SUPPORT_TOLERANCE = 0.02  # MA 支撑判断容忍度（2%）
+    VOLUME_HEAVY_RATIO = 2.0    # 放量判断阈值
+    MA_SUPPORT_TOLERANCE = 0.015  # MA 支撑判断容忍度（2%）
     
     def __init__(self):
         """初始化分析器"""
@@ -319,7 +319,9 @@ class StockTrendAnalyzer:
         买点偏好：回踩 MA5/MA10 获得支撑
         """
         price = result.current_price
-        
+        current_close = result.current_price
+        # 获取当日最低价，如果 df 包含 high/low
+        current_low = df.iloc[-1]['low'] if 'low' in df.columns else current_close
         # 检查是否在 MA5 附近获得支撑
         if result.ma5 > 0:
             ma5_distance = abs(price - result.ma5) / result.ma5
@@ -329,6 +331,22 @@ class StockTrendAnalyzer:
         
         # 检查是否在 MA10 附近获得支撑
         if result.ma10 > 0:
+            # 容忍区间：均线上下 2%
+            upper_bound = result.ma10 * (1 + self.MA_SUPPORT_TOLERANCE)
+            lower_bound = result.ma10 * (1 - self.MA_SUPPORT_TOLERANCE)
+            
+            # 情况A: 悬空回调 (最低价接近 MA10)
+            is_near = abs(current_low - result.ma10) / result.ma10 <= self.MA_SUPPORT_TOLERANCE
+            
+            # 情况B: 刺破收回 (最低价 < MA10 但 收盘价 > MA10)
+            is_pierce_recover = (current_low <= result.ma10) and (current_close >= result.ma10)
+            
+            if is_near or is_pierce_recover:
+                result.support_ma10 = True
+                result.support_levels.append(result.ma10)
+                # 加分项：刺破收回是强支撑信号
+                if is_pierce_recover:
+                    result.signal_reasons.append("✅ 金针探底：回踩MA10获支撑")
             ma10_distance = abs(price - result.ma10) / result.ma10
             if ma10_distance <= self.MA_SUPPORT_TOLERANCE and price >= result.ma10:
                 result.support_ma10 = True
